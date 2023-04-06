@@ -25,8 +25,7 @@ Resources:
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId:
-        Ref: "VPC"
+      VpcId: !Ref VPC
       CidrBlock: !Select [0, !Cidr [!Ref CidrVPC, 4, 8]]
       AvailabilityZone: !Select [ 0, !GetAZs  '' ]
       MapPublicIpOnLaunch: true
@@ -37,8 +36,7 @@ Resources:
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId:
-        Ref: "VPC"
+      VpcId: !Ref VPC
       CidrBlock: !Select [1, !Cidr [!Ref CidrVPC, 4, 8]]
       AvailabilityZone: !Select [ 1, !GetAZs  '' ]
       MapPublicIpOnLaunch: true
@@ -56,16 +54,13 @@ Resources:
   AttachGatewayToInternet:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      VpcId:
-        Ref: VPC
-      InternetGatewayId:
-        Ref: InternetGateway
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
 
   RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId:  
-        Ref: "VPC"
+      VpcId:   !Ref VPC
       Tags:
       - Key: env
         Value: !Ref Environment
@@ -74,34 +69,27 @@ Resources:
     Type: AWS::EC2::Route
     DependsOn: AttachGatewayToInternet
     Properties:
-      RouteTableId:
-        Ref: RouteTable
+      RouteTableId: !Ref RouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId:
-        Ref: InternetGateway
+      GatewayId: !Ref InternetGateway
 
   SubnetRouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId:
-        Ref: PublicSubnet1
-      RouteTableId:
-        Ref: RouteTable
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
 
   SubnetRouteTableAssociation2:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId:
-        Ref: PublicSubnet2
-      RouteTableId:
-        Ref: RouteTable
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable
 
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow http, ssh and ping to EC2
-      VpcId: 
-        Ref: VPC
+      VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
