@@ -1,0 +1,174 @@
+Resources:
+
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties: 
+          CidrBlock: 10.0.0.0/16
+          Tags: 
+            - Key: env
+              Value: dev
+
+    PublicSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties:
+          VpcId:
+            Ref: "VPC"
+          CidrBlock: 10.0.10.0/24
+          AvailabilityZone: "eu-central-1a"
+          MapPublicIpOnLaunch: true
+          Tags:
+          - Key: env
+            Value: dev
+
+    PublicSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties:
+          VpcId:
+            Ref: "VPC"
+          CidrBlock: 10.0.20.0/24
+          AvailabilityZone: "eu-central-1b"
+          MapPublicIpOnLaunch: true
+          Tags:
+          - Key: env
+            Value: dev
+
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+          Tags:
+          - Key: env
+            Value: dev
+
+    AttachGatewayToInternet:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId:
+          Ref: "VPC"
+        InternetGatewayId:
+          Ref: "InternetGateway"
+
+    RouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+          VpcId:  
+            Ref: "VPC"
+          Tags:
+          - Key: env
+            Value: dev
+
+    PublicRoute:
+        Type: AWS::EC2::Route
+        DependsOn: "AttachGatewayToInternet"
+        Properties:
+          RouteTableId:
+            Ref: "RouteTable"
+          DestinationCidrBlock: 0.0.0.0/0
+          GatewayId:
+            Ref: "InternetGateway"
+
+    SubnetRouteTableAssociation1:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+          SubnetId:
+            Ref: "PublicSubnet1"
+          RouteTableId:
+            Ref: "RouteTable"
+
+    SubnetRouteTableAssociation2:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+          SubnetId:
+            Ref: "PublicSubnet2"
+          RouteTableId:
+            Ref: "RouteTable"
+
+
+    InstanceSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow http, ssh and ping to EC2
+        VpcId: 
+            Ref: "VPC"
+
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+
+          - IpProtocol: icmp
+            FromPort: 8
+            ToPort: -1
+            CidrIp: 0.0.0.0/0 
+
+        
+    Instance1:    
+        Type: AWS::EC2::Instance
+        Properties: 
+            AvailabilityZone: "eu-central-1a"
+            ImageId: "ami-0fa03365cde71e0ab"
+            InstanceType: "t2.micro"
+            NetworkInterfaces: 
+              - AssociatePublicIpAddress: "true"
+                DeviceIndex: "0"
+                GroupSet: 
+                  - Ref: "InstanceSecurityGroup"
+                SubnetId: 
+                  Ref: "PublicSubnet1"
+            #PrivateIpAddress: 192.168.0.4
+
+
+    Volume1:
+        Type: AWS::EC2::Volume
+        Properties: 
+          AvailabilityZone: "eu-central-1a"
+          Size: 8
+          VolumeType: "gp2"
+
+    MountPoint1:
+        Type: AWS::EC2::VolumeAttachment
+        Properties:
+          InstanceId: 
+              Ref: "Instance1"
+          VolumeId: 
+              Ref: "Volume1"
+          Device: "/dev/sdh"
+
+
+    Instance2:    
+        Type: AWS::EC2::Instance
+        Properties: 
+            AvailabilityZone: "eu-central-1b"
+            ImageId: "ami-0fa03365cde71e0ab"
+            InstanceType: "t2.micro"
+            NetworkInterfaces: 
+              - AssociatePublicIpAddress: "true"
+                DeviceIndex: "0"
+                GroupSet: 
+                  - Ref: "InstanceSecurityGroup"
+                SubnetId: 
+                  Ref: "PublicSubnet2"
+            #PrivateIpAddress: 192.168.0.26
+
+
+    Volume2:
+        Type: AWS::EC2::Volume
+        Properties: 
+          AvailabilityZone: "eu-central-1b"
+          Size: 8
+          VolumeType: "gp2"
+
+    MountPoint2:
+        Type: AWS::EC2::VolumeAttachment
+        Properties:
+          InstanceId: 
+              Ref: "Instance2"
+          VolumeId: 
+              Ref: "Volume2"
+          Device: "/dev/sdh"
+
