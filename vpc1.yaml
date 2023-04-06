@@ -1,174 +1,162 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  Environment:
+    Type: String
+  CidrVPC:
+    Type: String
+    Default: 10.0.0.0/16
+  InstanceType:
+    Type: String
+    Default: t2.micro
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
 Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref CidrVPC
+      Tags: 
+        - Key: env
+          Value: !Ref Environment
 
-    VPC:
-        Type: AWS::EC2::VPC
-        Properties: 
-          CidrBlock: 10.0.0.0/16
-          Tags: 
-            - Key: env
-              Value: dev
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      CidrBlock: !Select [0, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: env
+        Value: !Ref Environment
 
-    PublicSubnet1:
-        Type: AWS::EC2::Subnet
-        Properties:
-          VpcId:
-            Ref: "VPC"
-          CidrBlock: 10.0.10.0/24
-          AvailabilityZone: "eu-central-1a"
-          MapPublicIpOnLaunch: true
-          Tags:
-          - Key: env
-            Value: dev
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      CidrBlock: !Select [1, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: env
+        Value: !Ref Environment
 
-    PublicSubnet2:
-        Type: AWS::EC2::Subnet
-        Properties:
-          VpcId:
-            Ref: "VPC"
-          CidrBlock: 10.0.20.0/24
-          AvailabilityZone: "eu-central-1b"
-          MapPublicIpOnLaunch: true
-          Tags:
-          - Key: env
-            Value: dev
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: env
+          Value: !Ref Environment
 
-    InternetGateway:
-        Type: AWS::EC2::InternetGateway
-        Properties:
-          Tags:
-          - Key: env
-            Value: dev
+  AttachGatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: InternetGateway
 
-    AttachGatewayToInternet:
-      Type: AWS::EC2::VPCGatewayAttachment
-      Properties:
-        VpcId:
-          Ref: "VPC"
-        InternetGatewayId:
-          Ref: "InternetGateway"
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: "VPC"
+      Tags:
+      - Key: env
+        Value: !Ref Environment
 
-    RouteTable:
-        Type: AWS::EC2::RouteTable
-        Properties:
-          VpcId:  
-            Ref: "VPC"
-          Tags:
-          - Key: env
-            Value: dev
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGatewayToInternet
+    Properties:
+      RouteTableId:
+        Ref: RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
 
-    PublicRoute:
-        Type: AWS::EC2::Route
-        DependsOn: "AttachGatewayToInternet"
-        Properties:
-          RouteTableId:
-            Ref: "RouteTable"
-          DestinationCidrBlock: 0.0.0.0/0
-          GatewayId:
-            Ref: "InternetGateway"
+  SubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet1
+      RouteTableId:
+        Ref: RouteTable
 
-    SubnetRouteTableAssociation1:
-        Type: AWS::EC2::SubnetRouteTableAssociation
-        Properties:
-          SubnetId:
-            Ref: "PublicSubnet1"
-          RouteTableId:
-            Ref: "RouteTable"
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet2
+      RouteTableId:
+        Ref: RouteTable
 
-    SubnetRouteTableAssociation2:
-        Type: AWS::EC2::SubnetRouteTableAssociation
-        Properties:
-          SubnetId:
-            Ref: "PublicSubnet2"
-          RouteTableId:
-            Ref: "RouteTable"
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http, ssh and ping to EC2
+      VpcId: 
+        Ref: VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: 8
+          ToPort: -1
+          CidrIp: 0.0.0.0/0 
 
+  Instance1:    
+    Type: AWS::EC2::Instance
+    Properties: 
+      AvailabilityZone: !GetAtt PublicSubnet1.AvailabilityZone
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet1
+               
+  Instance2:    
+    Type: AWS::EC2::Instance
+    Properties: 
+      AvailabilityZone: !GetAtt PublicSubnet2.AvailabilityZone
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet2
 
-    InstanceSecurityGroup:
-      Type: AWS::EC2::SecurityGroup
-      Properties:
-        GroupDescription: Allow http, ssh and ping to EC2
-        VpcId: 
-            Ref: "VPC"
-
-        SecurityGroupIngress:
-          - IpProtocol: tcp
-            FromPort: 22
-            ToPort: 22
-            CidrIp: 0.0.0.0/0
-
-          - IpProtocol: tcp
-            FromPort: 80
-            ToPort: 80
-            CidrIp: 0.0.0.0/0
-
-          - IpProtocol: icmp
-            FromPort: 8
-            ToPort: -1
-            CidrIp: 0.0.0.0/0 
-
-        
-    Instance1:    
-        Type: AWS::EC2::Instance
-        Properties: 
-            AvailabilityZone: "eu-central-1a"
-            ImageId: "ami-0fa03365cde71e0ab"
-            InstanceType: "t2.micro"
-            NetworkInterfaces: 
-              - AssociatePublicIpAddress: "true"
-                DeviceIndex: "0"
-                GroupSet: 
-                  - Ref: "InstanceSecurityGroup"
-                SubnetId: 
-                  Ref: "PublicSubnet1"
-            #PrivateIpAddress: 192.168.0.4
-
-
-    Volume1:
-        Type: AWS::EC2::Volume
-        Properties: 
-          AvailabilityZone: "eu-central-1a"
-          Size: 8
-          VolumeType: "gp2"
-
-    MountPoint1:
-        Type: AWS::EC2::VolumeAttachment
-        Properties:
-          InstanceId: 
-              Ref: "Instance1"
-          VolumeId: 
-              Ref: "Volume1"
-          Device: "/dev/sdh"
-
-
-    Instance2:    
-        Type: AWS::EC2::Instance
-        Properties: 
-            AvailabilityZone: "eu-central-1b"
-            ImageId: "ami-0fa03365cde71e0ab"
-            InstanceType: "t2.micro"
-            NetworkInterfaces: 
-              - AssociatePublicIpAddress: "true"
-                DeviceIndex: "0"
-                GroupSet: 
-                  - Ref: "InstanceSecurityGroup"
-                SubnetId: 
-                  Ref: "PublicSubnet2"
-            #PrivateIpAddress: 192.168.0.26
-
-
-    Volume2:
-        Type: AWS::EC2::Volume
-        Properties: 
-          AvailabilityZone: "eu-central-1b"
-          Size: 8
-          VolumeType: "gp2"
-
-    MountPoint2:
-        Type: AWS::EC2::VolumeAttachment
-        Properties:
-          InstanceId: 
-              Ref: "Instance2"
-          VolumeId: 
-              Ref: "Volume2"
-          Device: "/dev/sdh"
+Outputs:
+  InstanceId1:
+    Description: InstanceId of the first newly created EC2 instance
+    Value: !Ref 'Instance1'
+  InstanceId2:
+    Description: InstanceId of the second newly created EC2 instance
+    Value: !Ref 'Instance2'
+  AZ1:
+    Description: Availability Zone of the first newly created EC2 instance
+    Value: !GetAtt Instance1.AvailabilityZone
+  AZ2:
+    Description: Availability Zone of the second newly created EC2 instance
+    Value: !GetAtt Instance2.AvailabilityZone
+  PublicIP1:
+    Description: Public IP address of the first newly created EC2 instance
+    Value: !GetAtt Instance1.PublicIp
+  PublicIP2:
+    Description: Public IP address of the first newly created EC2 instance
+    Value: !GetAtt Instance2.PublicIp
 
