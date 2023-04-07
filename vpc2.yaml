@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  Environment:
+    Type: String
+  CidrVPC:
+    Type: String
+    Default: 10.0.0.0/16
+  InstanceType:
+    Type: String
+    Default: t2.micro
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref CidrVPC
+      Tags: 
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: Environment
+        Value: !Ref Environment
+      - Key: State
+        Value: Public
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: Environment
+        Value: !Ref Environment
+      - Key: State
+        Value: Public
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [2, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Environment
+        Value: !Ref Environment
+      - Key: State
+        Value: Private
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [3, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Environment
+        Value: !Ref Environment
+      - Key: State
+        Value: Private
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  AttachGatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  NatElasticIP:
+    Type: AWS::EC2::EIP
+    
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt NatElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:   !Ref VPC
+      Tags:
+      - Key: State
+        Value: Public
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:   !Ref VPC
+      Tags:
+      - Key: State
+        Value: Private
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGatewayToInternet
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRoute:
+    DependsOn: NatGateway
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
+
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable
+    
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http, ssh and ping to EC2
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: 8
+          ToPort: -1
+          CidrIp: 0.0.0.0/0 
+
+  Instance1:    
+    Type: AWS::EC2::Instance
+    Properties: 
+      AvailabilityZone: !GetAtt PublicSubnet1.AvailabilityZone
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet1
+               
+  Instance2:    
+    Type: AWS::EC2::Instance
+    Properties: 
+      AvailabilityZone: !GetAtt PrivateSubnet1.AvailabilityZone
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref Instance2KeyPar
+      NetworkInterfaces:
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          DeviceIndex: 0
+          SubnetId: !Ref PrivateSubnet1
+
+  Instance2KeyPar:
+    Type: AWS::EC2::KeyPair
+    Properties: 
+      KeyName: testPvt
+
+Outputs:
+  InstanceId1:
+    Description: InstanceId of the first newly created EC2 instance
+    Value: !Ref Instance1
+  InstanceId2:
+    Description: InstanceId of the second newly created EC2 instance
+    Value: !Ref Instance2
+  AZ1:
+    Description: Availability Zone of the first newly created EC2 instance
+    Value: !GetAtt Instance1.AvailabilityZone
+  AZ2:
+    Description: Availability Zone of the second newly created EC2 instance
+    Value: !GetAtt Instance2.AvailabilityZone
+  PublicIP1:
+    Description: Public IP address of the first newly created EC2 instance
+    Value: !GetAtt Instance1.PublicIp
+  IpAddress:
+    Description: The public IP address of the NAT gateway.
+    Value: !Ref NatElasticIP
+
+  # TestKey:
+  #   Description: Test output KeyFingerprint
+  #   Value: !GetAtt Instance2KeyPar.
+
