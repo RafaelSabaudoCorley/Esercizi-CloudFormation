@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+
+  # VpcId:
+  #   Type: AWS::EC2::VPC::Id
+  #   Description: Insert the VPC id for the VPC endpoint.
+
+  # SecurityGroupId:
+  #   Type: AWS::EC2::SecurityGroup::Id
+  #   Description: Insert the security group id to associate with the VPC endpoint.
+
+  # SubnetIds:
+  #   Type: List<AWS::EC2::Subnet::Id>
+  #   Description: "insert the subnets to associate with the VPC endpoint. (comma separated)"
+
+  Environment:
+    Type: String
+
+  CidrVPC:
+    Type: String
+    Default: 10.0.0.0/16
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref CidrVPC
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: 
+        - Key: env
+          Value: !Ref Environment
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: env
+        Value: !Ref Environment
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Cidr [!Ref CidrVPC, 4, 8]]
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: env
+          Value: !Ref Environment
+        - Key: State
+          Value: Private
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: env
+          Value: !Ref Environment
+
+  AttachGatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:   !Ref VPC
+      Tags:
+      - Key: env
+        Value: !Ref Environment
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGatewayToInternet
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow all traffic
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  InstanceProfile:
+    DependsOn: Ec2SsmRole
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Roles: 
+        - !Ref Ec2SsmRole
+
+  Instance1:    
+    Type: AWS::EC2::Instance
+    DependsOn: Ec2SsmRole
+    Properties: 
+      AvailabilityZone: !GetAtt PublicSubnet.AvailabilityZone
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          DeviceIndex: 0
+          SubnetId: !Ref PrivateSubnet
+      IamInstanceProfile: !Ref InstanceProfile
+
+  Ec2SsmRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      Description: SSM policy role for EC2
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:  
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ec2.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      RoleName: Ec2SsmRole
+
+  SSMEndpoints:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+        - !Ref InstanceSecurityGroup
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssm"
+      SubnetIds: 
+        - !Ref PublicSubnet
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+  
+  SSMMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+        - !Ref InstanceSecurityGroup
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssmmessages"
+      SubnetIds: 
+        - !Ref PublicSubnet
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+
+  EC2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+        - !Ref InstanceSecurityGroup
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ec2messages"
+      SubnetIds: 
+        - !Ref PublicSubnet
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+               
+
+Outputs:
+  InstanceId1:
+    Description: InstanceId of the newly created EC2 instance
+    Value: !Ref Instance1
+  AZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value: !GetAtt Instance1.AvailabilityZone
+  VPCID:
+    Description: VPCID
+    Value: !Ref VPC
+  SubnetID:
+    Description: SubnetID
+    Value: !Ref PublicSubnet
+  SecurityGroupID:
+    Description: Security Group ID
+    Value: !Ref InstanceSecurityGroup
+
